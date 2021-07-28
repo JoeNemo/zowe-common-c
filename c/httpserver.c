@@ -2390,9 +2390,16 @@ static int proxyServe(HttpService *service,
 static char *getCookieValue(HttpRequest *request, char *cookieName){
   HttpHeader *cookieHeader = getHeader(request,"Cookie");
   ShortLivedHeap *slh = request->slh;
-  char *cookieText = cookieHeader->nativeValue;
-  int cookieTextLength = strlen(cookieText);
-  int cookieNameLength = strlen(cookieName);
+  int cookieTextLength = 0;
+  int cookieNameLength = 0;
+  char *cookieText = NULL;
+  if (cookieHeader != NULL){
+    cookieText = cookieHeader->nativeValue;
+    cookieTextLength = strlen(cookieText);
+    cookieNameLength = strlen(cookieName);
+  } else{
+    return NULL;
+  }
   int pos = 0;
   while (pos<cookieTextLength){
     if (isspace(cookieText[pos])) {
@@ -2450,7 +2457,7 @@ static int safAuthenticate(HttpService *service, HttpRequest *request, AuthRespo
      }
   }
   if (traceAuth){
-    printf("safAuthenticate\n");
+    printf("safAutheniticate: authDataFound=%d\n",authDataFound);
   }
   if (authDataFound) {
     ACEE *acee = NULL;
@@ -2483,7 +2490,6 @@ static int safAuthenticate(HttpService *service, HttpRequest *request, AuthRespo
     int pwdCheckRC = 0, pwdCheckRSN = 0;
     pwdCheckRC = zisCheckUsernameAndPassword(privilegedServerName,
         request->username, request->password, &status);
-
     authResponse->type = AUTH_TYPE_RACF;
     authResponse->responseDetails.safStatus = status.safStatus;
 
@@ -2517,8 +2523,8 @@ static int safAuthenticate(HttpService *service, HttpRequest *request, AuthRespo
 
 static int nativeAuth(HttpService *service, HttpRequest *request, AuthResponse *authResponse){
 #ifdef __ZOWE_OS_ZOS
-  printf("nativeAuth about to bless this request 0x%p\n",request);
-  return TRUE; /* safAuthenticate(service, request, authResponse); */
+  int retValue = safAuthenticate(service, request, authResponse);
+  return retValue;
 #else
 #ifdef DEBUG_AUTH
   printf("*** ERROR *** native auth not implemented for this platform\n");
@@ -3140,6 +3146,10 @@ static void serveRequest(HttpService* service, HttpResponse* response,
         serveSimpleTemplate(service, response);
         // Response is finished on return
       } else {
+	/* 
+	   bills
+	   try normal login and trace with Sean
+	 */
         service->serviceFunction(service, response);
       }
     }
@@ -3167,7 +3177,6 @@ static int handleHttpService(HttpServer *server,
                              HttpService *service,
                              HttpRequest *request,
                              HttpResponse *response){
-
 #ifdef __ZOWE_OS_ZOS
   HttpConversation *conversation = response->conversation;
 
@@ -3222,7 +3231,6 @@ static int handleHttpService(HttpServer *server,
     if (workingOnResponse == TRUE) {           
       SLHFree(response->slh);  
     }
-
     return HTTP_SERVICE_FAILED;
   }
 #endif
@@ -3235,9 +3243,7 @@ static int handleHttpService(HttpServer *server,
   int clearSessionToken = FALSE;
   AuthResponse authResponse;
 
-  int authTypeHack = service->authType;
-  authTypeHack = SERVICE_AUTH_NONE;
-  switch (authTypeHack){
+  switch (service->authType){
   case SERVICE_AUTH_NONE:
     request->authenticated = TRUE;
     break;
@@ -3848,7 +3854,6 @@ void respondWithUnixFileContents2 (HttpService* service, HttpResponse* response,
 
 // Response must ALWAYS be finished on return
 void respondWithUnixFileContentsWithAutocvtMode (HttpService* service, HttpResponse* response, char* absolutePath, int jsonMode, int autocvt) {
-  printf("JOE: respondWithUnixFileContentsWithAutocvtMode path=%s, jsonMode=%d autocvt=%d\n",absolutePath,jsonMode,autocvt);
   FileInfo info;
   int returnCode;
   int reasonCode;
@@ -4067,7 +4072,6 @@ void respondWithUnixFile2(HttpService* service, HttpResponse* response, char* ab
       service->customHeadersFunction(service, response);
     }
 
-    printf("JOE: isBinary=%d ccsi=%d\n",isBinary,ccsid);
     if (isBinary || ccsid == -1) {
       writeHeader(response);
 #ifdef DEBUG
